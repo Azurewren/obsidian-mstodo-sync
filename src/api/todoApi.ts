@@ -1,4 +1,4 @@
-import * as msal from '@azure/msal-node';
+import { PublicClientApplication, AccountInfo } from "@azure/msal-browser";
 import * as msalCommon from '@azure/msal-common';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TodoTask, TodoTaskList } from '@microsoft/microsoft-graph-types';
@@ -83,7 +83,7 @@ export class MicrosoftClientProvider {
 	private readonly clientId = '1950a258-227b-4e31-a9cf-717495945fc2';
 	private readonly authority = 'https://login.microsoftonline.com/e0b58b8f-6524-4354-a672-42b0d236fa6d';
 	private readonly scopes: string[] = ["https://management.core.windows.net//.default"];
-	private readonly pca: msal.PublicClientApplication;
+	private readonly pca: PublicClientApplication;
 	private readonly adapter: DataAdapter;
 	private readonly cachePath: string;
 
@@ -106,57 +106,33 @@ export class MicrosoftClientProvider {
 			afterCacheAccess,
 		};
 		const config = {
-			auth: {
-				clientId: this.clientId,
-				authority: this.authority,
-			},
-			cache: {
-				cachePlugin,
-			},
-		};
-		this.pca = new msal.PublicClientApplication(config);
+			 auth: {
+			  clientId: this.clientId,
+			  authority: this.authority,
+			 },
+			 cache: {
+			  cacheLocation: "localStorage", // or "sessionStorage"
+			  storeAuthStateInCookie: false, // set to true if you want to store the auth state in a cookie
+			 },
+			};
+		this.pca = new PublicClientApplication(config);
 	}
 
 	private async getAccessToken() {
-		const msalCacheManager = this.pca.getTokenCache();
-		if (await this.adapter.exists(this.cachePath)) {
-			msalCacheManager.deserialize(await this.adapter.read(this.cachePath));
-		}
-		const accounts = await msalCacheManager.getAllAccounts();
-		if (accounts.length == 0) {
-			return await this.acquireTokenInteractive();
-		} else {
-			return await this.authByCache(accounts[0]);
-		}
+		const accounts = await this.pca.getAllAccounts();
+	   if (accounts.length == 0) {
+		   return await this.acquireTokenInteractive();
+	   } else {
+		   return await this.authByCache(accounts[0]);
+	   }
 	}
-	private async authByDevice(): Promise<string> {
-		const deviceCodeRequest = {
-			deviceCodeCallback: (response: msalCommon.DeviceCodeResponse) => {
-				new Notice(t('Notice_DeviceCodeOnClipboard'));
-				navigator.clipboard.writeText(response['userCode']);
-				new MicrosoftAuthModal(response['userCode'], response['verificationUri']).open();
-				console.log(t('Notice_DeviceCodeCopiedToClipboard'), response['userCode']);
-			},
-			scopes: this.scopes,
-		};
-		return await this.pca.acquireTokenByDeviceCode(deviceCodeRequest).then((res) => {
-			return res == null ? 'error' : res['accessToken'];
-		});
-	}
+	
 	
 	private async acquireTokenInteractive(): Promise<string> {
         try {
-            const authResult = await this.pca.acquireTokenByDeviceCode({
-                deviceCodeCallback: (response) => {
-                    // Instead of logging, open the URL in the user's default browser
-					const userInteractionUrl = `${response.verificationUri}?user_code=${response.userCode}`;
-					console.log(`Please open the following URL in your browser and enter the code: ${userInteractionUrl}`);
-                    //app.openExternalLink(userInteractionUrl);
-					const { shell } = require('electron');
-					shell.openExternal(userInteractionUrl);
-                },
-                scopes: this.scopes,
-            });
+            const authResult = await this.pca.acquireTokenPopup({
+				scopes: this.scopes,
+			});
 
             if (authResult && authResult.accessToken) {
                 return authResult.accessToken;
@@ -169,7 +145,7 @@ export class MicrosoftClientProvider {
         }
     }
 
-	private async authByCache(account: msal.AccountInfo): Promise<string> {
+	private async authByCache(account: AccountInfo): Promise<string> {
 		const silentRequest = {
 			account: account,
 			scopes: this.scopes,
