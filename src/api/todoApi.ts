@@ -114,21 +114,33 @@ export class MicrosoftClientProvider {
 	
 	
 	private async acquireTokenInteractive(): Promise<string> {
-        try {
-            const authResult = await this.pca.acquireTokenPopup({
-				scopes: this.scopes,
-			});
+		const request = {
+			scopes: this.scopes,
+		};
+		try {
+			await this.pca.acquireTokenRedirect(request);
+			return Promise.reject('User will be redirected for authentication.');
+		} catch (err) {
+			if (err instanceof InteractionRequiredAuthError) {
+				const accounts = await this.pca.getAllAccounts();
+				if (accounts.length > 0) {
+					const silentRequest = {
+						account: accounts[0],
+						scopes: this.scopes,
+					};
+					try {
+						const response = await this.pca.acquireTokenSilent(silentRequest);
+						return response.accessToken;
+					} catch (error) {
+						console.error('Silent authentication failed', error);
+						return Promise.reject(error);
+					}
+				}
+			}
+			return Promise.reject(err);
+		}
+	}
 
-            if (authResult && authResult.accessToken) {
-                return authResult.accessToken;
-            } else {
-                throw new Error('No access token returned from interactive authentication.');
-            }
-        } catch (error) {
-            console.error('Interactive authentication failed', error);
-            throw error;
-        }
-    }
 
 	private async authByCache(account: AccountInfo): Promise<string> {
 		const silentRequest = {
