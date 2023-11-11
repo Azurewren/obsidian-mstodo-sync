@@ -81,7 +81,7 @@ export class TodoApi {
 
 export class MicrosoftClientProvider {
 	private readonly clientId = 'a1172059-5f55-45cd-9665-8dccc98c2587';
-	private readonly authority = 'https://login.microsoftonline.com/consumers';
+	private readonly authority = 'https://login.microsoftonline.com/common';
 	private readonly scopes: string[] = ['Tasks.ReadWrite', 'openid', 'profile'];
 	private readonly pca: msal.PublicClientApplication;
 	private readonly adapter: DataAdapter;
