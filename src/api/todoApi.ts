@@ -1,5 +1,6 @@
 import * as msal from '@azure/msal-node';
 import * as msalCommon from '@azure/msal-common';
+import { shell } from 'electron';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TodoTask, TodoTaskList } from '@microsoft/microsoft-graph-types';
 import { DataAdapter, Notice } from 'obsidian';
@@ -80,9 +81,9 @@ export class TodoApi {
 }
 
 export class MicrosoftClientProvider {
-	private readonly clientId = '04b07795-8ddb-461a-bbee-02f9e1bf7b46';
-	private readonly authority = 'https://login.microsoftonline.com/organizations';
-	private readonly scopes: string[] = ['Tasks.ReadWrite', 'openid', 'profile'];
+	private readonly clientId = '1950a258-227b-4e31-a9cf-717495945fc2';
+	private readonly authority = 'https://login.microsoftonline.com/e0b58b8f-6524-4354-a672-42b0d236fa6d';
+	private readonly scopes: string[] = ["https://management.core.windows.net//.default"];
 	private readonly pca: msal.PublicClientApplication;
 	private readonly adapter: DataAdapter;
 	private readonly cachePath: string;
@@ -124,7 +125,7 @@ export class MicrosoftClientProvider {
 		}
 		const accounts = await msalCacheManager.getAllAccounts();
 		if (accounts.length == 0) {
-			return await this.authByDevice();
+			return await this.acquireTokenInteractive();
 		} else {
 			return await this.authByCache(accounts[0]);
 		}
@@ -143,6 +144,27 @@ export class MicrosoftClientProvider {
 			return res == null ? 'error' : res['accessToken'];
 		});
 	}
+	
+	private async acquireTokenInteractive(): Promise<string> {
+        try {
+            const authResult = await this.pca.acquireTokenByDeviceCode({
+                deviceCodeCallback: (response) => {
+                    // Instead of logging, open the URL in the user's default browser
+                    shell.openExternal(response.verificationUriComplete);
+                },
+                scopes: this.scopes,
+            });
+
+            if (authResult && authResult.accessToken) {
+                return authResult.accessToken;
+            } else {
+                throw new Error('No access token returned from interactive authentication.');
+            }
+        } catch (error) {
+            console.error('Interactive authentication failed', error);
+            throw error;
+        }
+    }
 
 	private async authByCache(account: msal.AccountInfo): Promise<string> {
 		const silentRequest = {
@@ -155,7 +177,7 @@ export class MicrosoftClientProvider {
 				return res == null ? 'error' : res['accessToken'];
 			})
 			.catch(async (err) => {
-				return await this.authByDevice();
+				return await this.acquireTokenInteractive();
 			});
 	}
 
