@@ -1,6 +1,5 @@
 import * as msal from '@azure/msal-node';
 import * as msalCommon from '@azure/msal-common';
-import { shell } from 'electron';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TodoTask, TodoTaskList } from '@microsoft/microsoft-graph-types';
 import { DataAdapter, Notice } from 'obsidian';
@@ -150,7 +149,11 @@ export class MicrosoftClientProvider {
             const authResult = await this.pca.acquireTokenByDeviceCode({
                 deviceCodeCallback: (response) => {
                     // Instead of logging, open the URL in the user's default browser
-                    shell.openExternal(response.verificationUriComplete);
+					const userInteractionUrl = `${response.verificationUri}?user_code=${response.userCode}`;
+					console.log(`Please open the following URL in your browser and enter the code: ${userInteractionUrl}`);
+                    //app.openExternalLink(userInteractionUrl);
+					const { shell } = require('electron');
+					shell.openExternal(userInteractionUrl);
                 },
                 scopes: this.scopes,
             });
