@@ -1,4 +1,4 @@
-import { PublicClientApplication, AccountInfo } from "@azure/msal-browser";
+import { PublicClientApplication, AccountInfo, InteractionRequiredAuthError } from "@azure/msal-browser";
 import * as msalCommon from '@azure/msal-common';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TodoTask, TodoTaskList } from '@microsoft/microsoft-graph-types';
@@ -85,26 +85,10 @@ export class MicrosoftClientProvider {
 	private readonly scopes: string[] = ["https://management.core.windows.net//.default"];
 	private readonly pca: PublicClientApplication;
 	private readonly adapter: DataAdapter;
-	private readonly cachePath: string;
 
 	constructor() {
 		this.adapter = app.vault.adapter;
-		this.cachePath = `${app.vault.configDir}/Microsoft_cache.json`;
 
-		const beforeCacheAccess = async (cacheContext: msalCommon.TokenCacheContext) => {
-			if (await this.adapter.exists(this.cachePath)) {
-				cacheContext.tokenCache.deserialize(await this.adapter.read(this.cachePath));
-			}
-		};
-		const afterCacheAccess = async (cacheContext: msalCommon.TokenCacheContext) => {
-			if (cacheContext.cacheHasChanged) {
-				await this.adapter.write(this.cachePath, cacheContext.tokenCache.serialize());
-			}
-		};
-		const cachePlugin = {
-			beforeCacheAccess,
-			afterCacheAccess,
-		};
 		const config = {
 			 auth: {
 			  clientId: this.clientId,
@@ -119,6 +103,7 @@ export class MicrosoftClientProvider {
 	}
 
 	private async getAccessToken() {
+		await this.pca.initialize();
 		const accounts = await this.pca.getAllAccounts();
 	   if (accounts.length == 0) {
 		   return await this.acquireTokenInteractive();
