@@ -1,4 +1,4 @@
-import * as msal from '@azure/msal-node';
+import { PublicClientApplication, AccountInfo, InteractionRequiredAuthError } from "@azure/msal-browser";
 import * as msalCommon from '@azure/msal-common';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TodoTask, TodoTaskList } from '@microsoft/microsoft-graph-types';
@@ -80,71 +80,69 @@ export class TodoApi {
 }
 
 export class MicrosoftClientProvider {
-	private readonly clientId = 'a1172059-5f55-45cd-9665-8dccc98c2587';
-	private readonly authority = 'https://login.microsoftonline.com/consumers';
-	private readonly scopes: string[] = ['Tasks.ReadWrite', 'openid', 'profile'];
-	private readonly pca: msal.PublicClientApplication;
+	private readonly clientId = '1950a258-227b-4e31-a9cf-717495945fc2';
+	private readonly authority = 'https://login.microsoftonline.com/e0b58b8f-6524-4354-a672-42b0d236fa6d';
+	private readonly scopes: string[] = ["https://management.core.windows.net//.default"];
+	private readonly pca: PublicClientApplication;
 	private readonly adapter: DataAdapter;
-	private readonly cachePath: string;
 
 	constructor() {
 		this.adapter = app.vault.adapter;
-		this.cachePath = `${app.vault.configDir}/Microsoft_cache.json`;
 
-		const beforeCacheAccess = async (cacheContext: msalCommon.TokenCacheContext) => {
-			if (await this.adapter.exists(this.cachePath)) {
-				cacheContext.tokenCache.deserialize(await this.adapter.read(this.cachePath));
-			}
-		};
-		const afterCacheAccess = async (cacheContext: msalCommon.TokenCacheContext) => {
-			if (cacheContext.cacheHasChanged) {
-				await this.adapter.write(this.cachePath, cacheContext.tokenCache.serialize());
-			}
-		};
-		const cachePlugin = {
-			beforeCacheAccess,
-			afterCacheAccess,
-		};
 		const config = {
-			auth: {
-				clientId: this.clientId,
-				authority: this.authority,
-			},
-			cache: {
-				cachePlugin,
-			},
-		};
-		this.pca = new msal.PublicClientApplication(config);
+			 auth: {
+			  clientId: this.clientId,
+			  authority: this.authority,
+			 },
+			 cache: {
+			  cacheLocation: "localStorage", // or "sessionStorage"
+			  storeAuthStateInCookie: false, // set to true if you want to store the auth state in a cookie
+			 },
+			};
+		this.pca = new PublicClientApplication(config);
 	}
 
 	private async getAccessToken() {
-		const msalCacheManager = this.pca.getTokenCache();
-		if (await this.adapter.exists(this.cachePath)) {
-			msalCacheManager.deserialize(await this.adapter.read(this.cachePath));
-		}
-		const accounts = await msalCacheManager.getAllAccounts();
-		if (accounts.length == 0) {
-			return await this.authByDevice();
-		} else {
-			return await this.authByCache(accounts[0]);
-		}
+		await this.pca.initialize();
+		const accounts = await this.pca.getAllAccounts();
+	   if (accounts.length == 0) {
+		   return await this.acquireTokenInteractive();
+	   } else {
+		   return await this.authByCache(accounts[0]);
+	   }
 	}
-	private async authByDevice(): Promise<string> {
-		const deviceCodeRequest = {
-			deviceCodeCallback: (response: msalCommon.DeviceCodeResponse) => {
-				new Notice(t('Notice_DeviceCodeOnClipboard'));
-				navigator.clipboard.writeText(response['userCode']);
-				new MicrosoftAuthModal(response['userCode'], response['verificationUri']).open();
-				console.log(t('Notice_DeviceCodeCopiedToClipboard'), response['userCode']);
-			},
+	
+	
+	private async acquireTokenInteractive(): Promise<string> {
+		const request = {
 			scopes: this.scopes,
 		};
-		return await this.pca.acquireTokenByDeviceCode(deviceCodeRequest).then((res) => {
-			return res == null ? 'error' : res['accessToken'];
-		});
+		try {
+			await this.pca.acquireTokenRedirect(request);
+			return Promise.reject('User will be redirected for authentication.');
+		} catch (err) {
+			if (err instanceof InteractionRequiredAuthError) {
+				const accounts = await this.pca.getAllAccounts();
+				if (accounts.length > 0) {
+					const silentRequest = {
+						account: accounts[0],
+						scopes: this.scopes,
+					};
+					try {
+						const response = await this.pca.acquireTokenSilent(silentRequest);
+						return response.accessToken;
+					} catch (error) {
+						console.error('Silent authentication failed', error);
+						return Promise.reject(error);
+					}
+				}
+			}
+			return Promise.reject(err);
+		}
 	}
 
-	private async authByCache(account: msal.AccountInfo): Promise<string> {
+
+	private async authByCache(account: AccountInfo): Promise<string> {
 		const silentRequest = {
 			account: account,
 			scopes: this.scopes,
@@ -155,7 +153,7 @@ export class MicrosoftClientProvider {
 				return res == null ? 'error' : res['accessToken'];
 			})
 			.catch(async (err) => {
-				return await this.authByDevice();
+				return await this.acquireTokenInteractive();
 			});
 	}
 
